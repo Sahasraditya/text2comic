@@ -2,11 +2,7 @@ import React from "react";
 import styles from "../styles/style";
 
 import {
-  Navbar,
-  // Footer,
-  // Services,
   Hero,
-  // Transactions,
 } from "../components";
 
 export default function Home() {
@@ -22,11 +18,9 @@ export default function Home() {
 
         <div className={`${styles.flexCenter} ${styles.paddingX} `}>
           <div className={`${styles.boxWidth}`}>
-            {/* <SkillsAndExperience /> */}
-
           </div>
         </div>
-        {/* <Footer /> */}
+
       </section>
     </div>
 

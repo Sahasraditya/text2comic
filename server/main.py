@@ -46,30 +46,21 @@ It takes a user's query or message as input and returns the generated response.
  """
 
 def convert_text_to_conversation(text):
-
-    # Call the Gemini API to generate a response
     try:
+        # Use OpenAI GPT-3.5 for text generation
+        response = request_chat_gpt_api(text)
         
-        response = request_gemini_pro_api(text)
-
-        # Example use of ChatGPT API
-
-        # response = request_chat_gpt_api(text)
-
         # Process the response to extract speech and person information
-
-        speech, person = generate_map_from_text(
-            response
-            )
+        speech, person = generate_map_from_text(response)
 
         # Return the generated speech and person information
         return (speech, person)
 
-    except openai.error.APIError as e:
+    except openai.APIError as e:
         raise Exception(f"OpenAI API returned an API Error: {e}")
-    except openai.error.APIConnectionError as e:
+    except openai.APIConnectionError as e:
         raise Exception(f"Failed to connect to OpenAI API: {e}")
-    except openai.error.RateLimitError as e:
+    except openai.RateLimitError as e:
         raise Exception(f"OpenAI API request exceeded rate limit: {e}")
 
 
@@ -107,7 +98,7 @@ def stable_diff(person, speech, name, features, cfg, step, key):
     stability_api = client.StabilityInference(
     key=key,
     verbose=True,
-    engine="stable-diffusion-xl-beta-v2-2-2",
+    engine="stable-diffusion-xl-1024-v1-0",
 )
     try:
         answer = stability_api.generate(
@@ -169,8 +160,8 @@ def convert_images_to_pdf(images):
         convertapi.convert('pdf', {
             'Files': images
         }, from_format='images').file.save('./file.pdf')
-    except convertapi.exceptions.ConvertApiError as e:
-        raise Exception(f"Error occurred during image to PDF conversion: {e}")
+    except:
+        raise Exception(f"Error occurred during image to PDF conversion:")
 
 
 # Add line breaks to the generated speech to make it easier to read in the comic
@@ -228,16 +219,6 @@ def add_text_to_image(image_path, text_from_prompt, file_number):
         cv2.imwrite(f"./images/{file_number}.png", borderoutput)
     except Exception as e:
         raise Exception(f"Error occurred during text addition: {e}")
-
-# Configure gemini api
-    
-def request_gemini_pro_api(prompt):
-
-    GEMINI_API_KEY = os.environ['GEMINI_API_KEY'] # API key for Gemini
-    genai.configure(api_key=GEMINI_API_KEY) # Configure the API key
-    model = genai.GenerativeModel('gemini-pro') # Load the model
-    response = model.generate_content(prompt) # Generate the response
-    return response.text
 
 # Configure chat gpt api
 

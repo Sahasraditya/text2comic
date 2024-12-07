@@ -18,7 +18,7 @@ export default function CustomizedSnackbars(props) {
     };
 
     return (
-        <Stack spacing={2} sx={{ width: '100%' }}>
+        <Stack spacing={2} sx={{ width: '500%' }}>
             <Snackbar open={props.open} autoHideDuration={5000} onClose={handleClose}>
                 <Alert onClose={handleClose} severity="error" sx={{ width: '100%' }}>
                     <div className='text-base pb-1 font-semibold'>Uh-oh!Something went wrong</div>
