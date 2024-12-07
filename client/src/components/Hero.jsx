@@ -8,7 +8,7 @@ const Hero = () => {
   const router = useRouter()
 
   useEffect(() => {
-    document.title = "ComicifyAI";
+    document.title = "Text2Comic";
   }, []);
 
   return (
