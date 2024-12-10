@@ -15,7 +15,6 @@ import re
 import textwrap
 from openai import OpenAI
 
-
 load_dotenv()
 
 os.environ['STABILITY_HOST'] = 'grpc.stability.ai:443'
@@ -67,7 +66,7 @@ def stable_diff(person, speech, name, features, cfg, step, key):
     try:
         answer = stability_api.generate(
             prompt=f"""
-                Create a comic-style image where {person} says, "{speech}".
+                Create a comic-style image where {person} says, \"{speech}\".
                 Capture the expressions of the user from the dialogue.
                 Add styles based on the following features {features}
                 """,
@@ -79,19 +78,17 @@ def stable_diff(person, speech, name, features, cfg, step, key):
             samples=1,
             sampler=generation.SAMPLER_K_DPMPP_2M
         )
-        folder_path = "./images"
-        if not os.path.exists(folder_path):
-            os.makedirs(folder_path)
         for resp in answer:
             for artifact in resp.artifacts:
                 if artifact.finish_reason == generation.FILTER:
                     raise Exception("Your request activated the API's safety filters and could not be processed. Please modify the prompt and try again")
                 if artifact.type == generation.ARTIFACT_IMAGE:
-                    image_path = os.path.join(folder_path, f"{name}.png")
                     img_binary = io.BytesIO(artifact.binary)
                     img = Image.open(img_binary)
-                    img.save(image_path)
-                    return image_path
+                    buffered = io.BytesIO()
+                    img.save(buffered, format="PNG")
+                    img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                    return img_base64
     except Exception as e:
         error_message = str(e)
         balance_err = "Your organization does not have enough balance to request this action"
@@ -118,9 +115,10 @@ def add_line_breaks(text):
     except AttributeError as e:
         raise Exception(f"Error occurred during line break addition: {e}")
 
-def add_text_to_image(image_path, text_from_prompt, file_number):
+def add_text_to_image(base64_image, text_from_prompt):
     try:
-        image = Image.open(image_path)
+        image_data = base64.b64decode(base64_image)
+        image = Image.open(io.BytesIO(image_data))
         right_pad = 0
         left_pad = 0
         top_pad = 50
@@ -133,11 +131,10 @@ def add_text_to_image(image_path, text_from_prompt, file_number):
         font_type = ImageFont.truetype("font/animeace2_reg.ttf", 12)
         draw = ImageDraw.Draw(result)
         draw.text((10, 0), text_from_prompt, fill='black', font=font_type)
-        result.save(f"./images/{file_number}.png")
-        border_img = cv2.imread(f"./images/{file_number}.png")
-        borderoutput = cv2.copyMakeBorder(
-            border_img, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=[0, 0, 0])
-        cv2.imwrite(f"./images/{file_number}.png", borderoutput)
+        buffered = io.BytesIO()
+        result.save(buffered, format="PNG")
+        img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        return img_base64
     except Exception as e:
         raise Exception(f"Error occurred during text addition: {e}")
 
@@ -177,14 +174,14 @@ def generate_comic_from_text():
         key = request.get_json()['key']
         input = prompt + user_input
         response = convert_text_to_conversation(input)
-        generated_images_paths = []
+        serialized_images = []
         for i in range(len(response[0])):
-            image_path = stable_diff(
+            base64_image = stable_diff(
                 response[1][i], response[0][i], i, customisation, cfg, step, key)
-            generated_images_paths.append(image_path)
             text = add_line_breaks(response[0][i])
-            add_text_to_image(f"./images/{i}.png", text, i)
-        return jsonify({'folderPath': './images'}), 200
+            final_image = add_text_to_image(base64_image, text)
+            serialized_images.append(final_image)
+        return jsonify({'images': serialized_images}), 200
     except Exception as e:
         error_message = str(e)
         return json.dumps({'error': error_message}), 500, {'Content-Type': 'application/json'}
