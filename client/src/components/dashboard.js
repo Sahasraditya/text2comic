@@ -29,8 +29,10 @@ export default function Dashboard() {
         }),
         redirect: "follow",
       };
-  
-      const response = await fetch("http://127.0.0.1:5000/", requestOptions);
+      // const backendUrl = "http://backend-service:5000";  // Use the service name
+      // const response = await fetch(`${backendUrl}/`, requestOptions);
+      // const response = await fetch("http://127.0.0.1:5000/", requestOptions);
+      const response = await fetch("http://backend-service.default.svc.cluster.local", requestOptions);
       if (response.ok) {
         const data = await response.json();
         

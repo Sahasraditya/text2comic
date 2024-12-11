@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "export": "next export"
   },
   "dependencies": {
     "@emotion/react": "^11.11.1",
@@ -14,7 +15,7 @@
     "@mui/material": "^5.13.7",
     "@vercel/analytics": "^1.0.1",
     "autoprefixer": "10.4.14",
-    "next": "13.4.2",
+    "next": "^13.4.2",
     "postcss": "8.4.23",
     "react": "18.2.0",
     "react-dom": "18.2.0",
