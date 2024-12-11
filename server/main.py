@@ -14,16 +14,23 @@ import json
 import re
 import textwrap
 from openai import OpenAI
+from google.oauth2 import service_account
+from google.cloud import storage
+import time
+
 
 load_dotenv()
 
 os.environ['STABILITY_HOST'] = 'grpc.stability.ai:443'
 os.environ['STABILITY_KEY'] = os.getenv('STABLE_DIFFUSION_API')
 os.environ['OPENAI_API'] = os.getenv('OPEN_AI_API')
-os.environ['CONVERT_API_KEY'] = os.getenv('CONVERT_API')
+# os.environ['CONVERT_API_KEY'] = os.getenv('CONVERT_API')
 
 app = Flask(__name__)
 CORS(app, resources={r'/*': {'origins': '*'}})
+
+credentials = service_account.Credentials.from_service_account_file('service-credentials.json')
+g_client = storage.Client(credentials=credentials)
 
 # ==== Helper Functions ====
 def convert_text_to_conversation(text):
@@ -166,7 +173,7 @@ def test():
 @app.route('/', methods=['POST'])
 def generate_comic_from_text():
     try:
-        prompt = "Convert the following boring text into a comic style conversation between characters while retaining information. Try to keep the characters as people from the story. Keep a line break after each dialogue and don't include words like Scene 1, narration context and scenes etc. Keep the name of the character and not character number: \n\n\n"
+        prompt = "Convert the following boring text into a comic style conversation of no more than four sentences or total dialogues between characters while retaining information. Try to keep the characters as people from the story. Keep a line break after each dialogue and don't include words like Scene 1, narration context and scenes etc. Keep the name of the character and not character number: \n\n\n"
         user_input = request.get_json()['userInput']
         customisation = request.get_json()['customizations']
         cfg = request.get_json()['cfgValue']
@@ -181,10 +188,84 @@ def generate_comic_from_text():
             text = add_line_breaks(response[0][i])
             final_image = add_text_to_image(base64_image, text)
             serialized_images.append(final_image)
-        return jsonify({'images': serialized_images}), 200
+
+        # Stitch images together
+        stitched_image = stitch_images(serialized_images)
+        buffered = io.BytesIO()
+        stitched_image.save(buffered, format="PNG")
+        stitched_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+        upload_to_gcp(stitched_image)
+
+        return jsonify({'image': stitched_base64}), 200
     except Exception as e:
         error_message = str(e)
         return json.dumps({'error': error_message}), 500, {'Content-Type': 'application/json'}
+
+def stitch_images(base64_images):
+    try:
+        # Convert all base64 images to Image objects
+        images = [Image.open(io.BytesIO(base64.b64decode(img))) for img in base64_images]
+        
+        # Ensure that no more than 4 images are provided
+        if len(images) > 4:
+            raise ValueError("No more than 4 images should be provided.")
+
+        # Resize all images to the size of the largest image (if they are not already the same size)
+        max_width = max(img.width for img in images)
+        max_height = max(img.height for img in images)
+        
+        # Resize all images to have the same width and height (max dimensions)
+        images = [img.resize((max_width, max_height)) for img in images]
+
+        # Calculate the total width and height of the stitched image (2x2 grid layout)
+        total_width = max_width * 2  # Two images per row
+        total_height = max_height * 2  # Two images per column
+        
+        # Create a blank canvas for the stitched image
+        stitched_image = Image.new('RGB', (total_width, total_height), (255, 255, 255))
+
+        # Place each image in the correct grid position
+        for index, img in enumerate(images):
+            row = index // 2  # Determines row position (0 or 1)
+            col = index % 2  # Determines column position (0 or 1)
+            
+            x_offset = col * max_width
+            y_offset = row * max_height
+            
+            stitched_image.paste(img, (x_offset, y_offset))
+
+        return stitched_image
+
+    except Exception as e:
+        raise Exception(f"Error occurred during image stitching: {e}")
+
+
+
+def upload_to_gcp(image):
+    try:
+        bucket_name = 'text2comic'  # Replace with your actual GCP bucket name
+        bucket = g_client.get_bucket(bucket_name)
+        
+        # Create a unique file name based on current time or UUID
+        timestamp = int(time.time())
+        file_name = f"comic_image_{timestamp}.png"
+        
+        # Create a blob object and upload the image
+        blob = bucket.blob(file_name)
+        
+        # Save the image in the GCP bucket
+        buffered = io.BytesIO()
+        image.save(buffered, format="PNG")
+        buffered.seek(0)
+        blob.upload_from_file(buffered, content_type='image/png')
+
+        # Generate the public URL for the uploaded image
+        image_url = f"https://storage.googleapis.com/{bucket_name}/{file_name}"
+        print(f"Image successfully uploaded to: {image_url}")
+        return image_url
+    except Exception as e:
+        raise Exception(f"Error occurred while uploading image to GCP: {e}")
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0')
