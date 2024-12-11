@@ -1,5 +1,6 @@
 import os
 import base64
+import hashlib
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -17,6 +18,7 @@ from openai import OpenAI
 from google.oauth2 import service_account
 from google.cloud import storage
 import time
+import redis
 
 
 load_dotenv()
@@ -29,8 +31,20 @@ os.environ['OPENAI_API'] = os.getenv('OPEN_AI_API')
 app = Flask(__name__)
 CORS(app, resources={r'/*': {'origins': '*'}})
 
+# Initialize Redis client (connect to local Redis server)
+redis_client = redis.Redis(
+    host='redis-12295.c309.us-east-2-1.ec2.redns.redis-cloud.com',
+    port=12295,
+    db=0,
+    password='wLqNJWxFSnMpARKxCQYn1LKyVymLWMlK'
+)
+
 credentials = service_account.Credentials.from_service_account_file('service-credentials.json')
 g_client = storage.Client(credentials=credentials)
+
+def hash_prompt(prompt):
+    """Hash the user input to generate a unique key."""
+    return hashlib.sha256(prompt.encode('utf-8')).hexdigest()
 
 # ==== Helper Functions ====
 def convert_text_to_conversation(text):
@@ -180,9 +194,21 @@ def generate_comic_from_text():
         step = request.get_json()['steps']
         key = request.get_json()['key']
         input = prompt + user_input
+
+        hashed_prompt = hash_prompt(user_input)
+
+        # Check if the image URL is already in cache
+        cached_url = get_from_cache(hashed_prompt)
+        if cached_url:
+            # If image is cached, convert the image URL to base64
+            image = download_image_from_gcp(cached_url.decode('utf-8'))  # Download the image from GCP
+            base64_image = convert_image_to_base64(image)  # Convert to base64
+            return jsonify({'images': base64_image}), 200
+
+
         response = convert_text_to_conversation(input)
         serialized_images = []
-        for i in range(len(response[0])):
+        for i in range(min(len(response[0]),4)):
             base64_image = stable_diff(
                 response[1][i], response[0][i], i, customisation, cfg, step, key)
             text = add_line_breaks(response[0][i])
@@ -195,9 +221,11 @@ def generate_comic_from_text():
         stitched_image.save(buffered, format="PNG")
         stitched_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-        upload_to_gcp(stitched_image)
+        # Upload the image to GCP and cache the URL
+        image_url = upload_to_gcp(stitched_image, hashed_prompt)
+        set_in_cache(hashed_prompt, image_url)
 
-        return jsonify({'image': stitched_base64}), 200
+        return jsonify({'images': stitched_base64}), 200
     except Exception as e:
         error_message = str(e)
         return json.dumps({'error': error_message}), 500, {'Content-Type': 'application/json'}
@@ -242,14 +270,14 @@ def stitch_images(base64_images):
 
 
 
-def upload_to_gcp(image):
+def upload_to_gcp(image, hashed_prompt):
     try:
         bucket_name = 'text2comic'  # Replace with your actual GCP bucket name
         bucket = g_client.get_bucket(bucket_name)
         
-        # Create a unique file name based on current time or UUID
-        timestamp = int(time.time())
-        file_name = f"comic_image_{timestamp}.png"
+        # Create a unique file name based on hashed prompt
+        
+        file_name = f"comic_image_{hashed_prompt}.png"
         
         # Create a blob object and upload the image
         blob = bucket.blob(file_name)
@@ -266,6 +294,43 @@ def upload_to_gcp(image):
         return image_url
     except Exception as e:
         raise Exception(f"Error occurred while uploading image to GCP: {e}")
+
+def convert_image_to_base64(image):
+    """Convert an image to base64 encoding."""
+    buffered = io.BytesIO()
+    image.save(buffered, format="PNG")
+    buffered.seek(0)
+    return base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+# Function to download the image from GCP
+def download_image_from_gcp(image_url):
+
+    try:
+        # Extract the file name from the URL
+        file_name = image_url.split('/')[-1]
+
+        # Download the image from GCP
+        bucket_name = 'text2comic'  # Replace with your actual GCP bucket name
+        bucket = g_client.get_bucket(bucket_name)
+        blob = bucket.blob(file_name)
+        
+        # Download the image as a BytesIO object
+        image_data = blob.download_as_bytes()
+        image = Image.open(io.BytesIO(image_data))
+        
+        return image
+    except Exception as e:
+        raise Exception(f"Error downloading image from GCP: {e}")
+
+def get_from_cache(hashed_prompt):
+    """Check Redis cache for an existing image URL using the hashed prompt."""
+    return redis_client.get(hashed_prompt)
+
+
+def set_in_cache(hashed_prompt, image_url):
+    """Store the image URL in Redis cache with the hashed prompt."""
+    redis_client.set(hashed_prompt, image_url)  # Cache for 1 hour
+
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0')

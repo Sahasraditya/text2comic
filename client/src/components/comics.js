@@ -14,10 +14,7 @@ export default function Comics() {
       try {
         const parsedImages = JSON.parse(storedImages);
         // Convert to base64 image URLs
-        const base64Images = parsedImages.map(base64Image => 
-          `data:image/png;base64,${base64Image}`
-        );
-        setImages(base64Images);
+        setImages([`data:image/png;base64,${parsedImages}`]);
       } catch (error) {
         console.error('Error parsing images', error);
       }
@@ -44,7 +41,7 @@ export default function Comics() {
           </button>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-6">
   {images.map((image, index) => (
     <div key={index} className="image-item">
       <img
