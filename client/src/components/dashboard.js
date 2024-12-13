@@ -14,6 +14,36 @@ export default function Dashboard() {
   const [open, setOpen] = useState(false);
   const router = useRouter();
 
+  const pollForComicResponse = async (messageId) => {
+    const maxAttempts = 30;
+    let attempts = 0;
+    const checkInterval = 10000; // 10 seconds
+  
+    const checkResponse = async () => {
+      try {
+        const response = await fetch(`http://127.0.0.1:5000/check-comic?message_id=${messageId}`);
+        const data = await response.json();
+  
+        if (response.status === 200 && data.status === 'completed') {
+          localStorage.setItem('generatedComics', JSON.stringify(data.images));
+          router.push('/comics');
+          setLoading(false);
+        } else if (data.status === 'pending' && attempts < maxAttempts) {
+          attempts++;
+          setTimeout(checkResponse, checkInterval);
+        } else {
+          throw new Error("Comic generation timed out");
+        }
+      } catch (err) {
+        setErrMessage("Comic generation failed: " + err.message);
+        setOpen(true);
+        setLoading(false);
+      }
+    };
+  
+    checkResponse();
+  };
+  
   const submitHandler = async () => {
     try {
       setLoading(true);
@@ -34,15 +64,14 @@ export default function Dashboard() {
       if (response.ok) {
         const data = await response.json();
         
-        if (data.images && data.images.length > 0) {
-          // Store images in localStorage
-          localStorage.setItem('generatedComics', JSON.stringify(data.images));
-          
-          // Navigate to comics page
-          router.push('/comics');
+        // Start polling for the response
+        if (data.message_id) {
+          pollForComicResponse(data.message_id);
+        } else {
+          setErrMessage("No message ID received");
+          setOpen(true);
+          setLoading(false);
         }
-  
-        setLoading(false);
       } else {
         const errorData = await response.json();
         setErrMessage(errorData.error || "An error occurred");
